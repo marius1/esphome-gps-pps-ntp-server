@@ -7,6 +7,14 @@ Stratum-1 NTP server running on ESPHome, good enough for home lab. A u-blox LEA-
 **Hardware**: Waveshare ESP32-S3-ETH + WD22UGRC board (LEA-M8T-0-10)  
 **Accuracy**: ~10 µs worst-case between PPS corrections, self-correcting every second
 
+## Images
+
+| ![Image01](docs/images/image01.jpg) | ![Image02](docs/images/image02.jpg) |
+|:-----------------------------------:|:-----------------------------------:|
+| ![Image03](docs/images/image03.jpg) | ![Image04](docs/images/image04.jpg) |
+
+
+
 ## Components
 
 ### `gps_pps_time` - PPS-Disciplined Time Source
