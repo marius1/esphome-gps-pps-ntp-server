@@ -16,6 +16,8 @@ CONF_GPS_TIME = "gps_time"
 CONF_GPS_SATELLITES = "gps_satellites"
 CONF_GLONASS_SATELLITES = "glonass_satellites"
 CONF_GALILEO_SATELLITES = "galileo_satellites"
+CONF_CRASH_INFO = "crash_info"
+CONF_NMEA_CLOCK_DELTA = "nmea_clock_delta"
 
 DEPENDENCIES = ["gps"]
 AUTO_LOAD = ["sensor", "text_sensor"]
@@ -60,10 +62,19 @@ CONFIG_SCHEMA = time_.TIME_SCHEMA.extend(
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
+        cv.Optional(CONF_NMEA_CLOCK_DELTA): sensor.sensor_schema(
+            icon="mdi:clock-alert",
+            unit_of_measurement="ms",
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
         cv.Optional(CONF_GALILEO_SATELLITES): sensor.sensor_schema(
             icon="mdi:satellite-variant",
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_CRASH_INFO): text_sensor.text_sensor_schema(
+            icon="mdi:alert-circle-outline",
         ),
     }
 ).extend(cv.polling_component_schema("60s"))
@@ -107,3 +118,11 @@ async def to_code(config):
     if galileo_sat_config := config.get(CONF_GALILEO_SATELLITES):
         sens = await sensor.new_sensor(galileo_sat_config)
         cg.add(var.set_galileo_satellites_sensor(sens))
+
+    if crash_info_config := config.get(CONF_CRASH_INFO):
+        sens = await text_sensor.new_text_sensor(crash_info_config)
+        cg.add(var.set_crash_info_sensor(sens))
+
+    if nmea_delta_config := config.get(CONF_NMEA_CLOCK_DELTA):
+        sens = await sensor.new_sensor(nmea_delta_config)
+        cg.add(var.set_nmea_clock_delta_sensor(sens))

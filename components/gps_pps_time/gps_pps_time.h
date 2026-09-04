@@ -20,6 +20,8 @@ class GPSPPSTime : public time::RealTimeClock, public gps::GPSListener {
   void set_gps_satellites_sensor(sensor::Sensor *sensor) { this->gps_satellites_sensor_ = sensor; }
   void set_glonass_satellites_sensor(sensor::Sensor *sensor) { this->glonass_satellites_sensor_ = sensor; }
   void set_galileo_satellites_sensor(sensor::Sensor *sensor) { this->galileo_satellites_sensor_ = sensor; }
+  void set_crash_info_sensor(text_sensor::TextSensor *sensor) { this->crash_info_sensor_ = sensor; }
+  void set_nmea_clock_delta_sensor(sensor::Sensor *sensor) { this->nmea_clock_delta_sensor_ = sensor; }
 
   void setup() override;
   void loop() override;
@@ -30,11 +32,17 @@ class GPSPPSTime : public time::RealTimeClock, public gps::GPSListener {
   /// Returns true if PPS-disciplined time is active and recent
   bool is_synchronized() const;
 
+  /// Epoch of the last PPS correction, 0 if never synced.
+  /// NTP reference timestamp (RFC 5905 7.3) — not the current time.
+  time_t get_last_sync_epoch() const {
+    return this->pps_synced_ ? static_cast<time_t>(this->last_gps_epoch_) : 0;
+  }
+
   void on_update(TinyGPSPlus &tiny_gps) override;
 
  protected:
   void apply_pps_correction_();
-  void set_pps_time_(time_t epoch, int32_t compensation_us = 0);
+  void set_pps_time_(time_t epoch, uint32_t pps_micros, int32_t compensation_us = 0);
 
   InternalGPIOPin *pps_pin_{nullptr};
   sensor::Sensor *satellites_sensor_{nullptr};
@@ -44,6 +52,23 @@ class GPSPPSTime : public time::RealTimeClock, public gps::GPSListener {
   sensor::Sensor *gps_satellites_sensor_{nullptr};
   sensor::Sensor *glonass_satellites_sensor_{nullptr};
   sensor::Sensor *galileo_satellites_sensor_{nullptr};
+  text_sensor::TextSensor *crash_info_sensor_{nullptr};
+  sensor::Sensor *nmea_clock_delta_sensor_{nullptr};
+
+  /// System clock minus the NMEA epoch, ms. NMEA carries absolute time and always
+  /// arrives a sub-second delay AFTER the edge it describes, so a correct clock puts
+  /// this in (0, 1000). An integer-second value means the PPS epoch counter is off --
+  /// which last_drift_us_ cannot see, because drift is measured against that counter.
+  int32_t nmea_clock_delta_ms_{0};
+  bool nmea_clock_delta_valid_{false};
+  /// Consecutive NMEA updates agreeing on the same integer-second epoch error.
+  /// Requiring several stops a single glitched sentence from stepping the clock.
+  int8_t epoch_error_streak_{0};
+  int8_t epoch_error_last_{0};
+
+  /// Pre-crash state from RTC NOINIT memory (populated in setup, published in first update)
+  std::string crash_report_;
+  bool crash_report_pending_{false};
 
   /// TinyGPSCustom objects for per-constellation satellite counts (GSV sentences)
   TinyGPSCustom *gp_gsv_sats_{nullptr};
@@ -61,10 +86,16 @@ class GPSPPSTime : public time::RealTimeClock, public gps::GPSListener {
   volatile bool gps_time_valid_{false};
   /// Flag set by ISR when PPS pulse detected
   volatile bool pps_flag_{false};
-  /// Microsecond timestamp of last PPS pulse (from micros())
+  /// Microsecond timestamp of last PPS pulse (from micros()) — used for interval/elapsed calc
   volatile uint32_t last_pps_micros_{0};
-  /// Whether PPS-disciplined time has been applied at least once
-  bool pps_synced_{false};
+  /// ISR guard anchor — re-anchored after hard-sync, separate from interval tracking
+  volatile uint32_t isr_anchor_micros_{0};
+  /// Whether PPS-disciplined time has been applied at least once.
+  /// volatile: read cross-thread by NTPServer::recv_task_() via is_synchronized()
+  /// and get_last_sync_epoch() (single bool/word, atomic on Xtensa -- benign
+  /// without volatile, but this documents the cross-thread read and stops the
+  /// compiler from ever caching it across the loop() write path).
+  volatile bool pps_synced_{false};
   /// Whether coarse GPS time has been set (once)
   bool has_gps_time_{false};
   /// PPS pulse counter for throttling settimeofday calls
@@ -81,8 +112,9 @@ class GPSPPSTime : public time::RealTimeClock, public gps::GPSListener {
   uint32_t prev_pps_micros_{0};
   /// Running mean of drift in fixed-point x256 for display centering (ESP-IDF)
   int64_t drift_mean_x256_{0};
-  /// Millis timestamp of last processed PPS (for timeout detection)
-  uint32_t last_pps_millis_{0};
+  /// Millis timestamp of last processed PPS (for timeout detection).
+  /// volatile: read cross-thread by NTPServer::recv_task_() via is_synchronized().
+  volatile uint32_t last_pps_millis_{0};
   /// PPS timeout threshold in milliseconds
   static const uint32_t PPS_TIMEOUT_MS = 10000;
 
